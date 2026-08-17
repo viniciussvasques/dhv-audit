@@ -125,3 +125,48 @@ def test_evaluate_transaction_under_brazilian_legislation():
     assert report_fisc.risk_score > 0.50
     assert "ICMS" in report_fisc.legal_framing or "SPED" in report_fisc.legal_framing
     assert report_fisc.z_score_price > 3.0 # Price is an extreme outlier
+
+def test_statistical_audit_edge_cases():
+    engine = BrazilianProbabilisticAuditEngine()
+    
+    # 1. _chi_squared_cdf with x <= 0
+    assert engine._chi_squared_cdf(0.0, 8) == 0.0
+    assert engine._chi_squared_cdf(-5.0, 8) == 0.0
+    
+    # 2. _extract_first_digit with val <= 0
+    assert engine._extract_first_digit(-10.0) is None
+    
+    # 3. test_benford_law with less than 30 values
+    assert engine.test_benford_law([1.0, 2.0, 3.0]) == 1.0
+    
+    # 4. calculate_z_score_price with std_dev == 0
+    assert engine.calculate_z_score_price(10.0, [10.0, 10.0]) == 0.0
+    assert engine.calculate_z_score_price(10.0, [10.0]) == 0.0 # n < 2
+    
+    # 5. _poisson_probability with lamb <= 0
+    assert engine._poisson_probability(5, 0.0) == 0.0
+    assert engine._poisson_probability(5, -1.0) == 0.0
+    
+    # 6. _poisson_probability with overflow
+    assert engine._poisson_probability(10000000, 10000000.0) == 0.0
+    
+    # 7. calculate_poisson_anomaly with historical_average <= 0
+    assert engine.calculate_poisson_anomaly(5, 0.0) == 1.0
+    assert engine.calculate_poisson_anomaly(5, -2.0) == 1.0
+    
+    # 8. evaluate_transaction with procurement domain and low/medium risk levels
+    base_time = datetime(2026, 8, 17, 10, 0, 0)
+    tx_list = [
+        TransactionPayload("t-1", 100.0, 10.0, "NCM-1", base_time, "vendor-1"),
+        TransactionPayload("t-2", 102.0, 10.2, "NCM-1", base_time, "vendor-1")
+    ]
+    
+    # Procurement domain with low risk
+    report_low = engine.evaluate_transaction(tx_list[0], tx_list, "procurement")
+    assert report_low.severity == "low"
+    assert "Licita??es" in report_low.legal_framing
+    
+    # Procurement domain with other domain default
+    report_def = engine.evaluate_transaction(tx_list[0], tx_list, "other_unspecified_domain")
+    assert "Anticorrup??o" in report_def.legal_framing
+

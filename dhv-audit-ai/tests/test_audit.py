@@ -61,3 +61,59 @@ def test_create_and_fetch_audit_flow_via_api():
     assert data["company_name"] == "Beta Transportes"
     assert len(data["findings"]) == 1
     assert data["total_financial_impact"] == 1200.50
+
+def test_use_cases_gaps():
+    from src.application.use_cases import AuditRepositoryInterface
+    import pytest
+    
+    # Test abstract interface exceptions
+    interface = AuditRepositoryInterface()
+    with pytest.raises(NotImplementedError):
+        interface.save(None)
+    with pytest.raises(NotImplementedError):
+        interface.find_by_id("1")
+        
+    # Test AddFindingUseCase cycle not found
+    repo = InMemoryAuditRepository()
+    use_case = AddFindingUseCase(repo)
+    with pytest.raises(ValueError):
+        use_case.execute("invalid-id", "f-1", "title", "desc", FindingSeverity.HIGH, 100.0, 0.95)
+
+def test_api_error_branches():
+    # 1. Get non-existing cycle_id -> 404
+    response_get = client.get("/api/v1/audits/non-existent-id")
+    assert response_get.status_code == 404
+    assert "not found" in response_get.json()["detail"]
+    
+    # 2. Add finding to non-existing cycle -> 404
+    response_find = client.post("/api/v1/audits/non-existent-id/findings", json={
+        "id": "f-1",
+        "title": "Title",
+        "description": "Desc",
+        "severity": "high",
+        "financial_impact": 100.0,
+        "confidence_score": 0.95
+    })
+    assert response_find.status_code == 404
+    assert "not found" in response_find.json()["detail"]
+    
+    # 3. Create cycle with invalid body/conflict triggering Exception -> 400
+    # Let's mock the use case execute method to raise an Exception
+    from src.interfaces.api import main
+    def mock_execute_fail(*args, **kwargs):
+        raise Exception("Database insertion failed")
+        
+    original_uc = main.create_cycle_uc.execute
+    main.create_cycle_uc.execute = mock_execute_fail
+    try:
+        response_err = client.post("/api/v1/audits", json={
+            "id": "err-cycle",
+            "tenant_id": "tenant-err",
+            "company_name": "Err Corp"
+        })
+        assert response_err.status_code == 400
+        assert "Database insertion failed" in response_err.json()["detail"]
+    finally:
+        main.create_cycle_uc.execute = original_uc
+
+
