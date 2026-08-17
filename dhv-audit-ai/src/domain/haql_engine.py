@@ -77,7 +77,7 @@ class HAQLUnifiedEngine:
 
         # 5. C?lculo do Impacto Anual Projetado Integrado
         # Soma o impacto direto do desvio do documento com a inefici?ncia do ativo projetada ao ano
-        direct_saving = stats_report.financial_impact if stats_report.risk_score > 0.4 else 0.0
+        direct_saving = target_tx.value if stats_report.risk_score > 0.4 else 0.0
         total_annual_waste = direct_saving + annual_resource_waste
 
         # N?vel de risco consolidado
